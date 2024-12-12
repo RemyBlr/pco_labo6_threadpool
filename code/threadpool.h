@@ -38,6 +38,8 @@ public:
      */
     bool start(std::unique_ptr<Runnable> runnable) {
         // TODO
+        monitorIn();
+        monitorOut();
         return false;
     }
 
@@ -46,6 +48,8 @@ public:
      */
     size_t currentNbThreads() {
         // TODO
+        monitorIn();
+        monitorOut();
         return 0;
     }
 
