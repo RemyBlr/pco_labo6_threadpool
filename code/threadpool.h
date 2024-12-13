@@ -18,14 +18,28 @@ public:
     virtual std::string id() = 0;
 };
 
-class ThreadPool {
+class ThreadPool : public PcoHoareMonitor {
 public:
-    ThreadPool(int maxThreadCount, int maxNbWaiting, std::chrono::milliseconds idleTimeout)
-        : maxThreadCount(maxThreadCount), maxNbWaiting(maxNbWaiting), idleTimeout(idleTimeout) {
+    ThreadPool(int maxThreadCount, int maxNbWaiting, std::chrono::milliseconds idleTimeout) :
+        maxThreadCount(maxThreadCount),
+        maxNbWaiting(maxNbWaiting),
+        idleTimeout(idleTimeout),
+        currThreadsCount(0),
+        stop(false) {
     }
 
     ~ThreadPool() {
         // TODO : End smoothly
+        monitorIn();
+        stop = true;
+        // wake up trhread that might be waiting
+        signal(availableTasks);
+        signal(queueNotFull);
+        monitorOut();
+
+        // terminate threads
+        for(auto &t : threads)
+          t->join();
     }
 
     /*
@@ -39,8 +53,25 @@ public:
     bool start(std::unique_ptr<Runnable> runnable) {
         // TODO
         monitorIn();
+
+        if(stop) {
+            monitorOut(); // pool stopping, don't want another task
+            runnable->cancelRun();
+            return false;
+        }
+
+        // no thread and still place left
+        if(tasks.empty() && currThreadsCount < maxThreadCount)
+            createThread();
+
+        while(!stop && tasks.size() >= maxNbWaiting)
+            wait(queueNotFull); // block queue until spot liberated
+
+        tasks.push(runnable); // free spot in queue
+        signal(availableTasks); // wake up thread
+
         monitorOut();
-        return false;
+        return true;
     }
 
     /* Returns the number of currently running threads. They do not need to be executing a task,
@@ -49,8 +80,9 @@ public:
     size_t currentNbThreads() {
         // TODO
         monitorIn();
+        size_t count = currThreadsCount;
         monitorOut();
-        return 0;
+        return count;
     }
 
 private:
@@ -58,6 +90,64 @@ private:
     size_t maxThreadCount;
     size_t maxNbWaiting;
     std::chrono::milliseconds idleTimeout;
+
+    std::queue<std::unique_ptr<Runnable>> tasks;
+    std::vector<PcoThread*> threads;
+
+    bool stop;
+    size_t currThreadsCount;
+
+    Condition availableTasks; // adding task, wake up thread
+    Condition queueNotFull;   // spot in queue, start() can add new task
+
+    void createThread() {
+        threads.emplace_back(new PcoThread(&ThreadPool::doWork, this));
+        currThreadsCount++;
+    }
+
+    void doWork() {
+        // keep track of inacctivity
+        auto start = std::chrono::steady_clock::now();
+
+        monitorIn();
+        bool timeout = false;
+        while(true) {
+            while(!stop && tasks.empty() && !timeout) {
+                monitorOut(); // get out, so we dont block everyone
+                PcoThread::usleep(10000); // polling cycle
+                monitorIn();
+
+                if(!tasks.empty())
+                    break; // process task
+
+                // check inactivity timeout
+                auto now = std::chrono::steady_clock::now();
+                auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(now-start);
+                if(idle >= idleTimeout)
+                    timeout = true;
+            }
+
+            if(timeout || (stop && tasks.empty()))
+                break; // leave timeout or no more tasks
+
+            if(!tasks.empty()) {
+                auto task = std::move(tasks.front());
+                tasks.pop();
+                signal(queueNotFull); // empty spot in queue
+                monitorOut();
+
+                // execute task
+                task->run();
+                start = std::chrono::steady_clock::now();
+
+                monitorIn(); // new loop
+            }
+            else
+                break; // stop and empty queue
+        }
+        currThreadsCount--;
+        monitorOut(); // thread ends here
+    }
 };
 
 #endif // THREADPOOL_H
