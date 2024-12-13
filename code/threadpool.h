@@ -67,7 +67,7 @@ public:
         while(!stop && tasks.size() >= maxNbWaiting)
             wait(queueNotFull); // block queue until spot liberated
 
-        tasks.push(runnable); // free spot in queue
+        tasks.push(std::move(runnable)); // free spot in queue
         signal(availableTasks); // wake up thread
 
         monitorOut();
