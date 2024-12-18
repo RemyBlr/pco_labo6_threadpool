@@ -64,9 +64,15 @@ public:
         if(currThreadsCount < maxThreadCount)
             createThread();
 
-        while(!stop && tasks.size() >= maxNbWaiting)
-            wait(queueNotFull); // block queue until spot liberated
+		     // was not canceling the tasks when the queue was full
+			  //while(!stop && tasks.size() >= maxNbWaiting)
+			  //   wait(queueNotFull); // block queue until spot liberated
 
+			 if(tasks.size() == maxNbWaiting) {
+				 monitorOut();
+				 runnable->cancelRun();
+				 return false;
+			 }
         tasks.push(std::move(runnable)); // free spot in queue
         signal(availableTasks); // wake up thread
 
