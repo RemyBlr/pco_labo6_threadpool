@@ -61,7 +61,7 @@ public:
         }
 
         // no thread and still place left
-        if(tasks.empty() && currThreadsCount < maxThreadCount)
+        if(currThreadsCount < maxThreadCount)
             createThread();
 
         while(!stop && tasks.size() >= maxNbWaiting)
@@ -123,7 +123,7 @@ private:
                 // check inactivity timeout
                 auto now = std::chrono::steady_clock::now();
                 auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(now-start);
-                if(idle >= idleTimeout)
+                if(idle >= idleTimeout && tasks.empty()) //TODO TEST
                     timeout = true;
             }
 
@@ -134,6 +134,7 @@ private:
                 auto task = std::move(tasks.front());
                 tasks.pop();
                 signal(queueNotFull); // empty spot in queue
+					 std::cout<<"Tache: "<<task->id() << std::endl; //TODO TEST
                 monitorOut();
 
                 // execute task
@@ -142,8 +143,8 @@ private:
 
                 monitorIn(); // new loop
             }
-            else
-                break; // stop and empty queue
+//            else
+//                break; // stop and empty queue //TODO TEST
         }
         currThreadsCount--;
         monitorOut(); // thread ends here
