@@ -64,15 +64,19 @@ public:
         if(currThreadsCount < maxThreadCount)
             createThread();
 
-		     // was not canceling the tasks when the queue was full
-			  //while(!stop && tasks.size() >= maxNbWaiting)
-			  //   wait(queueNotFull); // block queue until spot liberated
+        // check if Q is full
+        // 1) if already max, leave
+        if (tasks.size() >= maxNbWaiting) {
+            monitorOut();
+            runnable->cancelRun();
+            return false;
+        }
 
-			 if(tasks.size() == maxNbWaiting) {
-				 monitorOut();
-				 runnable->cancelRun();
-				 return false;
-			 }
+        // 2) otherwise, wait for doWork to free space
+        while(!stop && tasks.size() >= maxNbWaiting)
+            wait(queueNotFull); // block queue until spot liberated
+
+
         tasks.push(std::move(runnable)); // free spot in queue
         signal(availableTasks); // wake up thread
 
@@ -120,7 +124,7 @@ private:
         while(true) {
             while(!stop && tasks.empty() && !timeout) {
                 monitorOut(); // get out, so we dont block everyone
-                PcoThread::usleep(10000); // polling cycle
+                PcoThread::usleep(1000); // polling cycle
                 monitorIn();
 
                 if(!tasks.empty())
@@ -149,8 +153,8 @@ private:
 
                 monitorIn(); // new loop
             }
-//            else
-//                break; // stop and empty queue //TODO TEST
+            else
+                break; // stop and empty queue //TODO TEST
         }
         currThreadsCount--;
         monitorOut(); // thread ends here
